@@ -408,16 +408,33 @@ export class SessionManager {
       await tmux.killSession(session.tmuxSession)
     }
 
+    // For Claude sessions, generate a fresh session ID to avoid reuse conflicts
+    const isClaudeSession = session.tool === "claude" && session.toolData?.claudeSessionId
+    const newClaudeSessionId = isClaudeSession ? randomUUID() : undefined
+    const command = isClaudeSession
+      ? `claude --session-id "${newClaudeSessionId}"`
+      : session.command
+
+    const env: Record<string, string> = { AGENT_ORCHESTRATOR_SESSION: session.id }
+    if (newClaudeSessionId) {
+      env.CLAUDE_SESSION_ID = newClaudeSessionId
+    }
+
     const newTmuxName = tmux.generateSessionName(session.title)
     await tmux.createSession({
       name: newTmuxName,
-      command: session.command,
-      cwd: session.projectPath
+      command,
+      cwd: session.projectPath,
+      env
     })
 
     session.tmuxSession = newTmuxName
+    session.command = command
     session.status = "running"
     session.lastAccessed = new Date()
+    if (newClaudeSessionId) {
+      session.toolData = { ...session.toolData, claudeSessionId: newClaudeSessionId }
+    }
 
     storage.saveSession(session)
     storage.touch()
